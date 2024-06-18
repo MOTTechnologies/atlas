@@ -1,0 +1,163 @@
+
+# (15) Special instructions
+
+# exception cause
+@define ECR_EICC  "ECR[0,16]"
+@define ECR_FECC  "ECR[16,16]"
+
+
+# NOP
+:nop is op0015=0x0000 {
+	__nop();
+}
+
+# SYNCE
+:synce is op0015=0x001D {
+	__synchronize();
+}
+# SYNCM
+:syncm is op0015=0x001E {
+	__synchronize();
+}
+# SYNCP
+:syncp is op0015=0x001F {
+	__synchronize();
+}
+
+# RIE
+:rie is op0015=0x0040 unimpl # reserved instruction for future expansion
+
+# SWITCH reg1
+:switch R0004 is op0515=0x002 & R0004 {
+	local lbl:4 = inst_next + (R0004 << 1);
+	local addr:4 = inst_next + (sext(*:2 lbl) << 1);
+	PC = addr;
+	goto [addr];
+}
+
+# FETRAP vector4
+:fetrap op1114 is op0010=0x040 & op1515=0 & op1114 & op1115!=0 {
+	FEPC = inst_next;
+	FEPSW = PSW;
+	FEIC = op1114 + 0x30;	 # exception code 0x30..0x3F
+	$(ECR_FECC) = op1114 + 0x30;
+	$(PSW_EP) = 1;
+	$(PSW_ID) = 1;
+	$(PSW_NP) = 1;
+	# there some flags should be cleared when MPM.AUE==1
+	PC = 0x30;
+	goto [PC];
+}
+
+# CALLT imm6
+:callt op0005 is op0615=0x008 & op0005 {
+	CTPC = inst_next;
+	CTPSW = PSW;
+	local lbl:4 = CTBP + (op0005 << 1);
+	local addr:4 = CTBP + zext(*:2 lbl);
+	PC = addr;
+	call [addr];
+}
+
+# RIE
+:rie is op0410=0x7F; op1631=0 unimpl # reserved instruction for future expansion
+
+# LDSR reg2, regID
+:ldsr R0004, SR1115 is op0510=0x3F & SR1115 & R0004; op1631=0x20 {
+	SR1115 = R0004;
+}
+# STSR regID, reg2
+:stsr SR0004, R1115 is op0510=0x3F & R1115 & SR0004; op1631=0x40 {
+	R1115 = SR0004;
+}
+
+# CAXI [reg1], reg2, reg3
+:caxi [R0004], R1115, R2731 is op0510=0x3F & R0004 & R1115; op1626=0xEE & R2731 {
+	local token = *:4 R0004;
+	local result = R1115 - token;
+	*:4 R0004 = token * zext(result != 0) +
+				R2731 * zext(result == 0);
+	R2731 = token;
+	flags_sub(R1115, token);
+}
+
+# TRAP imm5
+:trap op0004 is op0515=0x3F & op0004; op1631=0x0100 {
+	local vector5:4 = op0004;
+	EIPC = inst_next;
+	EIPSW = PSW;
+	EIIC = vector5 + 0x40;	 # exception code 0x40..0x5F
+	$(ECR_EICC) = vector5:2 + 0x40;
+	$(PSW_EP) = 1;
+	$(PSW_ID) = 1;
+	# there some flags should be cleared when MPM.AUE==1
+	local addr:4 = 0;
+	ternary (addr, (vector5 <= 15), 0x40, 0x50);
+	PC = addr;
+	call [PC];
+}
+
+# HALT
+:halt is op0515=0x3F; op1631=0x0120 {
+	__halt();
+}
+# RETI
+:reti is op0515=0x3F; op1631=0x0140 {
+# if PSW.EP = 1			then PC = EIPC, PSW = EIPSW
+# else if PSW.NP == 1	then PC = FEPC, PSW = FEPSW
+# else 						 PC = EIPC, PSW = EIPSW
+	if ($(PSW_EP) == 0) && $(PSW_NP) goto <fe_exc>;
+		PC = EIPC;
+		PSW = EIPSW;
+		return [PC];
+	<fe_exc>
+		PC = FEPC;
+		PSW = FEPSW;
+		return [PC];
+}
+# CTRET
+:ctret is op0515=0x3F; op1631=0x0144 {
+	PC = CTPC;
+	PSW = CTPSW;
+	return [PC];
+}
+# EIRET
+:eiret is op0515=0x3F; op1631=0x0148 {
+	PC = EIPC;
+	PSW = EIPSW;
+	return [PC];
+}
+# FERET
+:feret is op0515=0x3F; op1631=0x014A {
+	PC = FEPC;
+	PSW = FEPSW;
+	return [PC];
+}
+
+# DI
+:di is op0015=0x07E0; op1631=0x0160 {
+	$(PSW_ID) = 1;
+	__disable_irq();
+}
+# EI
+:ei is op0015=0x87E0; op1631=0x0160 {
+	$(PSW_ID) = 0;
+	__enable_irq();
+}
+
+# SYSCALL vector8
+:syscall vector8 is op0515=0x6BF & op0004; op3031=0 & op2729 & op1626=0x160 
+[ vector8 = (op2729 << 5) | op0004; ] {
+	EIPC = inst_next;
+	EIPSW = PSW;
+	EIIC = vector8 + 0x8000;	 # exception code 0x8000..0x80FF
+	$(ECR_EICC) = vector8 + 0x8000;
+	$(PSW_EP) = 1;
+	$(PSW_ID) = 1;
+	# there some flags should be cleared when MPM.AUE==1
+	local addr:4 = 0;
+	ternary (addr, (vector8 <= SCCFG), SCBP + (vector8 << 2), SCBP);
+	PC = SCBP + (*:4 addr);
+	call [PC];
+}
+

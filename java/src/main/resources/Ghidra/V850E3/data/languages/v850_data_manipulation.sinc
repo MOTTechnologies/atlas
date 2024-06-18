@@ -1,0 +1,178 @@
+
+# (9) Data manipulation instructions
+# (10) Bit search instructions
+
+
+# ZXB reg1
+:zxb R0004 is op0515=0x004 & R0004 {
+	R0004 = zext( R0004:1 );
+}
+# SXB reg1
+:sxb R0004 is op0515=0x005 & R0004 {
+	R0004 = sext( R0004:1 );
+}
+# ZXH reg1
+:zxh R0004 is op0515=0x006 & R0004 {
+	R0004 = zext( R0004:2 );
+}
+# SXH reg1
+:sxh R0004 is op0515=0x007 & R0004 {
+	R0004 = sext( R0004:2 );
+}
+
+macro shift_right_u (res, _val, _shift) {
+	local val = _val;
+	local shift = _shift;
+	res = val >> shift;
+	set_nOV_S_Z (val >> shift);
+	local lsb = val & (1 << (shift - 1));
+	set_C ((lsb != 0) && (shift != 0));
+}
+macro shift_right_s (res, _val, _shift) {
+	local val = _val;
+	local shift = _shift;
+	res = val s>> shift;
+	set_nOV_S_Z (val s>> shift);
+	local lsb = val & (1 << (shift - 1));
+	set_C ((lsb != 0) && (shift != 0));
+}
+macro shift_left (res, _val, _shift) {
+	local val = _val;
+	local shift = _shift;
+	res = val << shift;
+	set_nOV_S_Z (val << shift);
+	local c:5 = zext(val) << shift;
+	set_C (c[32,1]);
+	local msb = (val & (1 << (shift - 1))) >> 32;
+	set_C ((msb != 0) && (shift != 0));
+}
+
+
+# SHR imm5, reg2
+:shr op0004, r1115 is op0510=0x14 & op0004 & r1115 {
+	shift_right_u (r1115, r1115, op0004);
+}
+# SAR imm5, reg2
+:sar op0004, r1115 is op0510=0x15 & op0004 & r1115 {
+	shift_right_s (r1115, r1115, op0004);
+}
+# SHL imm5, reg2
+:shl op0004, r1115 is op0510=0x16 & op0004 & r1115 {
+	shift_left (r1115, r1115, op0004);
+}
+
+# SHR reg1, reg2
+:shr R0004, R1115 is op0510=0x3F & R0004 & R1115; op1631=0x80 {
+	shift_right_u (R1115, R1115, R0004);
+}
+# SHR reg1, reg2, reg3
+:shr R0004, R1115, R2731 is op0510=0x3F & R0004 & R1115; op1626=0x82 & R2731 {
+	shift_right_u (R2731, R1115, R0004);
+}
+# SAR reg1, reg2
+:sar R0004, R1115 is op0510=0x3F & R0004 & R1115; op1631=0xA0 {
+	shift_right_s (R1115, R1115, R0004);
+}
+# SAR reg1, reg2, reg3
+:sar R0004, R1115, R2731 is op0510=0x3F & R0004 & R1115; op1626=0xA2 & R2731 {
+	shift_right_s (R2731, R1115, R0004);
+}
+# SHL reg1, reg2
+:shl R0004, R1115 is op0510=0x3F & R0004 & R1115; op1631=0xC0 {
+	shift_left (R1115, R1115, R0004);
+}
+# SHL reg1, reg2, reg3
+:shl R0004, R1115, R2731 is op0510=0x3F & R0004 & R1115; op1626=0xC2 & R2731 {
+	shift_left (R2731, R1115, R0004);
+}
+
+# BSW reg2, reg3
+:bsw R1115, R2731 is op0010=0x7E0 & R1115; op1626=0x340 & R2731 {
+	local x0 = R1115[0,8];
+	local x1 = R1115[8,8];
+	local x2 = R1115[16,8];
+	local x3 = R1115[24,8];
+	R2731 = zext(x0 << 24) | zext(x1 << 16) | zext(x2 << 8) | zext(x3);
+	set_nOV_S_Z (R2731);
+	set_C ((x0 == 0) || (x1 == 0) || (x2 == 0) || (x3 == 0));
+}
+# BSH reg2, reg3
+:bsh R1115, R2731 is op0010=0x7E0 & R1115; op1626=0x342 & R2731 {
+	local x0 = R1115[0,8];
+	local x1 = R1115[8,8];
+	local x2 = R1115[16,8];
+	local x3 = R1115[24,8];
+	R2731 = zext(x2 << 24) | zext(x3 << 16) | zext(x0 << 8) | zext(x1);
+	set_nOV_S_Z (R2731);
+	set_C ((x0 == 0) || (x1 == 0));
+}
+# HSW reg2, reg3
+:hsw R1115, R2731 is op0010=0x7E0 & R1115; op1626=0x344 & R2731 {
+	# reg3 = reg2(15:0) || reg2(31:16)
+	local x0 = R1115[0,16];
+	local x1 = R1115[16,16];
+	R2731 = zext(x0 << 16) | zext(x1);
+	set_nOV_S_Z (R2731);
+	set_C ((x0 == 0) || (x1 == 0));
+}
+# HSH reg2, reg3
+:hsh R1115, R2731 is op0010=0x7E0 & R1115; op1626=0x346 & R2731 {
+	local x0 = R1115[0,16];
+	R2731 = R1115;
+	set_nOV_S_Z (R2731);
+	set_C (x0 == 0);
+}
+
+macro SearchRight(count, value, pattern) {
+	local tmp:4 = value;
+	<loop>
+		if ((tmp & 1) == pattern) goto <end>;
+		tmp = tmp >> 1;
+		count = count + 1;
+		if (count < 32) goto <loop>;
+	<end>
+}
+macro SearchLeft(count, value, pattern) {
+	local tmp:4 = value;
+	<loop>
+		if ((tmp >> 31) == pattern) goto <end>;
+		tmp = tmp << 1;
+		count = count + 1;
+		if (count < 32) goto <loop>;
+	<end>
+}
+
+# SCH0R reg2, reg3
+:sch0r R1115, R2731 is op0010=0x7E0 & R1115; op1626=0x360 & R2731 {
+	local count:4 = 0;
+	SearchRight(count, R1115, 0);
+	$(PSW_Z)  = (R1115 == 0xFFFFFFFF);	# zero bit not found
+	$(PSW_CY) = (R1115 != 0xFFFFFFFF);	# zero bit found
+	R2731 = count;
+}
+# SCH1R reg2, reg3
+:sch1r R1115, R2731 is op0010=0x7E0 & R1115; op1626=0x362 & R2731 {
+	local count:4 = 0;
+	SearchRight(count, R1115, 1);
+	$(PSW_Z)  = (R1115 == 0);	# one bit not found
+	$(PSW_CY) = (R1115 != 0);	# one bit found}
+	R2731 = count;
+}
+# SCH0L reg2, reg3
+:sch0l R1115, R2731 is op0010=0x7E0 & R1115; op1626=0x364 & R2731 {
+	local count:4 = 0;
+	SearchLeft(count, R1115, 0);
+	$(PSW_Z)  = (R1115 == 0xFFFFFFFF);	# zero bit not found
+	$(PSW_CY) = (R1115 != 0xFFFFFFFF);	# zero bit found
+	R2731 = count;
+}
+# SCH1L reg2, reg3
+:sch1l R1115, R2731 is op0010=0x7E0 & R1115; op1626=0x366 & R2731 {
+	local count:4 = 0;
+	SearchLeft(count, R1115, 0);
+	$(PSW_Z)  = (R1115 == 0);	# one bit not found
+	$(PSW_CY) = (R1115 != 0);	# one bit found
+	R2731 = count;
+}
+
+
